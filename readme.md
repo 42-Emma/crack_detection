@@ -42,8 +42,8 @@ To keep the repository lightweight, the large trained weight files are not inclu
 
 ### Download the Weights
 
-1. [U-Net Weights] (https://drive.google.com/file/d/1hXnIrYP_Rym4qDFbe9Yzyd0QNDb-RCBm/view?usp=drive_link)
-2. [Pix2Pix Weights] (https://drive.google.com/file/d/1Eb-2_AjOq19j-6_ejCF0I3I9ljZisXgr/view?usp=drive_link)
+1. **U-Net Weights** ([`unet_weights.pth`](https://drive.google.com/file/d/1hXnIrYP_Rym4qDFbe9Yzyd0QNDb-RCBm/view?usp=drive_link))
+2. **Pix2Pix Weights** ([`pix2pix_weights.pth`](https://drive.google.com/file/d/1Eb-2_AjOq19j-6_ejCF0I3I9ljZisXgr/view?usp=drive_link))
 
 ### Placement
 
