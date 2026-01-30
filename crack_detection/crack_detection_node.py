@@ -229,6 +229,7 @@ class CrackDetectionNode(Node):
             self.pub_manager.publish_crack_center(center_x, center_y)
             self.pub_manager.publish_robot_pose(self.subscribers.current_pose)
             self.pub_manager.publish_marker(self.subscribers.current_pose, self.frame_count)
+            self.pub_manager.publish_scan_points_2d(self.current_scan_points)
         
         # Publish visualization
         if self.config.publish_visualization:

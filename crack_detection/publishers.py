@@ -57,6 +57,32 @@ class Publishers:
             10
         )
         
+        # Publisher for 2D scan points (all 3 points in one message)
+        self.scan_points_2d_pub = self.node.create_publisher(
+            String,
+            '/crack_detection/scan_points_2d',
+            10
+        )
+        
+        # Publishers for scan points (2D pixel + 3D coordinates)
+        self.scan_center_pub = self.node.create_publisher(
+            Point,
+            '/crack_detection/scan_center',
+            10
+        )
+        
+        self.scan_start_pub = self.node.create_publisher(
+            Point,
+            '/crack_detection/scan_start',
+            10
+        )
+        
+        self.scan_end_pub = self.node.create_publisher(
+            Point,
+            '/crack_detection/scan_end',
+            10
+        )
+        
         if self.config.publish_visualization:
             self.viz_pub = self.node.create_publisher(
                 Image,
@@ -132,6 +158,49 @@ class Publishers:
             marker.lifetime.sec = 0  # Marker persists forever
             self.marker_pub.publish(marker)
     
+    def publish_scan_points(self, scan_points_2d, scan_points_3d=None):
+        """
+        Publish scan points (center, start, end) with both 2D pixel and 3D coordinates.
+        
+        Args:
+            scan_points_2d: Dictionary with 'center', 'left_point', 'right_point' as (x, y) tuples
+            scan_points_3d: Optional dictionary with 3D coordinates (x, y, z) in meters
+        """
+        if scan_points_2d is None:
+            return
+        
+        # Publish center point
+        center_msg = Point()
+        if scan_points_3d is not None and 'center' in scan_points_3d:
+            # 3D coordinates available
+            center_msg.x, center_msg.y, center_msg.z = scan_points_3d['center']
+        else:
+            # Only 2D available
+            center_msg.x = float(scan_points_2d['center'][0])
+            center_msg.y = float(scan_points_2d['center'][1])
+            center_msg.z = 0.0
+        self.scan_center_pub.publish(center_msg)
+        
+        # Publish start (left) point
+        start_msg = Point()
+        if scan_points_3d is not None and 'left_point' in scan_points_3d:
+            start_msg.x, start_msg.y, start_msg.z = scan_points_3d['left_point']
+        else:
+            start_msg.x = float(scan_points_2d['left_point'][0])
+            start_msg.y = float(scan_points_2d['left_point'][1])
+            start_msg.z = 0.0
+        self.scan_start_pub.publish(start_msg)
+        
+        # Publish end (right) point
+        end_msg = Point()
+        if scan_points_3d is not None and 'right_point' in scan_points_3d:
+            end_msg.x, end_msg.y, end_msg.z = scan_points_3d['right_point']
+        else:
+            end_msg.x = float(scan_points_2d['right_point'][0])
+            end_msg.y = float(scan_points_2d['right_point'][1])
+            end_msg.z = 0.0
+        self.scan_end_pub.publish(end_msg)
+    
     def publish_visualization(self, viz_image, header, bridge):
         """Publish visualization image."""
         if self.config.publish_visualization:
@@ -151,3 +220,20 @@ class Publishers:
                 self.scan_viz_pub.publish(scan_viz_msg)
             except Exception as e:
                 self.node.get_logger().error(f'Failed to publish scan visualization: {e}')
+    
+    def publish_scan_points_2d(self, scan_points):
+        """
+        Publish 2D scan points as a single string message.
+        Format: "center:x,y;start:x,y;end:x,y"
+        
+        Args:
+            scan_points: Dictionary with 'center', 'left_point', 'right_point' as (x, y) tuples
+        """
+        if scan_points is not None:
+            center_x, center_y = scan_points['center']
+            start_x, start_y = scan_points['left_point']
+            end_x, end_y = scan_points['right_point']
+            
+            msg = String()
+            msg.data = f"center:{center_x},{center_y};start:{start_x},{start_y};end:{end_x},{end_y}"
+            self.scan_points_2d_pub.publish(msg)
