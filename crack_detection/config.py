@@ -60,6 +60,11 @@ class Config:
                 ('use_adaptive_depth', True),
                 ('target_inspection_distance', 1.5),
                 ('depth_tolerance', 0.1),
+                # Multi-crack detection parameters (NEW)
+                ('min_crack_area', 50),
+                ('min_aspect_ratio', 2.0),
+                ('max_aspect_ratio', 15.0),
+                ('max_cracks_per_frame', 10),
             ]
         )
     
@@ -122,6 +127,12 @@ class Config:
         self.target_inspection_distance = self.node.get_parameter('target_inspection_distance').value
         self.depth_tolerance = self.node.get_parameter('depth_tolerance').value
         
+        # Multi-crack detection parameters (NEW)
+        self.min_crack_area = self.node.get_parameter('min_crack_area').value
+        self.min_aspect_ratio = self.node.get_parameter('min_aspect_ratio').value
+        self.max_aspect_ratio = self.node.get_parameter('max_aspect_ratio').value
+        self.max_cracks_per_frame = self.node.get_parameter('max_cracks_per_frame').value
+        
         # Create save directory if it doesn't exist
         if not os.path.isabs(self.save_directory):
             self.save_directory = os.path.join(os.getcwd(), self.save_directory)
@@ -165,5 +176,10 @@ class Config:
             self.node.get_logger().info(f'Zoom enabled: {self.zoom_factor}x at ({self.zoom_center_x:.2f}, {self.zoom_center_y:.2f})')
         else:
             self.node.get_logger().info('Zoom disabled')
+        
+        # Log multi-crack detection settings (NEW)
+        self.node.get_logger().info(f'Multi-crack detection: Min area={self.min_crack_area}px, '
+                                    f'Aspect ratio=[{self.min_aspect_ratio:.1f}, {self.max_aspect_ratio:.1f}], '
+                                    f'Max cracks={self.max_cracks_per_frame}')
         
         self.node.get_logger().info(f'Save directory: {self.save_directory}')

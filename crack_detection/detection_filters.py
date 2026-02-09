@@ -44,7 +44,7 @@ class DetectionFilters:
             # Not enough data yet, default to no detection during startup
             if not self.temporal_filter_ready and len(self.detection_history) == self.config.temporal_window_size:
                 self.temporal_filter_ready = True
-                self.logger.info('✓ Temporal filter ready! Detection system now active.')
+                self.logger.info('✔ Temporal filter ready! Detection system now active.')
             return False
         
         # Count how many recent frames detected a crack
@@ -102,3 +102,50 @@ class DetectionFilters:
             else:
                 # Stay ON (above lower threshold)
                 return True
+    
+    def validate_crack_geometry(self, crack_info):
+        """
+        Validate a crack blob based on geometric properties.
+        Filters out shadows (too round) and wires (too thin).
+        
+        Args:
+            crack_info (dict): Dictionary with 'area', 'aspect_ratio', 'bbox' keys
+            
+        Returns:
+            bool: True if crack passes geometric validation, False otherwise
+        """
+        # Check area threshold
+        if crack_info['area'] < self.config.min_crack_area:
+            return False
+        
+        # Check aspect ratio
+        aspect = crack_info['aspect_ratio']
+        if aspect < self.config.min_aspect_ratio or aspect > self.config.max_aspect_ratio:
+            return False
+        
+        # All checks passed
+        return True
+    
+    def validate_crack_list(self, crack_list):
+        """
+        Apply geometric validation to a list of crack candidates.
+        
+        Args:
+            crack_list (list): List of crack dictionaries from ScanPointExtractor
+            
+        Returns:
+            list: Filtered list containing only geometrically valid cracks
+        """
+        valid_cracks = []
+        
+        for crack in crack_list:
+            if self.validate_crack_geometry(crack):
+                valid_cracks.append(crack)
+            else:
+                # Log rejection for debugging
+                self.logger.debug(
+                    f"Crack ID {crack['id']} rejected: "
+                    f"area={crack['area']}px, aspect_ratio={crack['aspect_ratio']:.2f}"
+                )
+        
+        return valid_cracks

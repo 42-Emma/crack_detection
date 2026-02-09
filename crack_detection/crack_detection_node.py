@@ -59,8 +59,9 @@ class CrackDetectionNode(Node):
         self.last_crack_percentage = 0.0
         self.last_original_frame = None
         
-        # Scan points tracking
-        self.current_scan_points = None
+        # Multi-crack tracking
+        self.current_crack_list = []  # List of all valid cracks in current frame
+        self.primary_crack = None     # Largest crack (for legacy compatibility)
         
         # Wall distance tracking
         self.current_wall_distance = None
@@ -69,7 +70,7 @@ class CrackDetectionNode(Node):
         self.subscribers.set_image_callback(self.image_callback)
         self.subscribers.set_capture_callback(self.capture_callback)
         
-        self.get_logger().info('✓ Initialization complete!')
+        self.get_logger().info('✔ Initialization complete!')
         self.get_logger().info('⏳ Temporal filter: Collecting initial frames...')
         self.get_logger().info('Waiting for camera images...')
         self.get_logger().info('='*60)
@@ -86,7 +87,7 @@ class CrackDetectionNode(Node):
                 self.last_crack_percentage,
                 self.current_wall_distance,
                 self.model_manager.mode,
-                self.current_scan_points  # Add this line
+                self.primary_crack  # Save primary crack scan points
             )
     
     def image_callback(self, msg):
@@ -114,7 +115,7 @@ class CrackDetectionNode(Node):
             # Run inference on zoomed frame
             pred_prob, binary_mask, crack_percentage_raw = self.inference_engine.predict_frame(frame_rgb)
             
-            # Apply depth filtering BEFORE calculating final crack percentage
+            # Apply depth filtering BEFORE extracting individual cracks
             if self.config.depth_filtering_enabled and self.subscribers.latest_depth_image is not None:
                 # Resize depth image to match zoomed frame if needed
                 depth_resized = cv2.resize(self.subscribers.latest_depth_image, 
@@ -132,7 +133,45 @@ class CrackDetectionNode(Node):
             total_pixels = binary_mask.size
             crack_percentage = (crack_pixels / total_pixels) * 100
             
-            # Cache results
+            # NEW: Extract ALL individual crack blobs
+            all_cracks = self.scan_point_extractor.extract_all_cracks(binary_mask)
+            
+            # NEW: Apply geometric validation to filter out shadows/wires
+            valid_cracks = self.detection_filters.validate_crack_list(all_cracks)
+            
+            # NEW: Sort by area (largest first)
+            valid_cracks.sort(key=lambda c: c['area'], reverse=True)
+            
+            # NEW: Limit to max cracks per frame
+            if len(valid_cracks) > self.config.max_cracks_per_frame:
+                valid_cracks = valid_cracks[:self.config.max_cracks_per_frame]
+            
+            # NEW: Map coordinates back to original frame if zoom is enabled
+            if self.config.zoom_enabled and zoom_roi is not None:
+                for crack in valid_cracks:
+                    # Map center
+                    center_x, center_y = self.image_processor.map_coordinates_to_original(
+                        crack['center'][0], crack['center'][1], zoom_roi, self.last_original_frame.shape
+                    )
+                    crack['center'] = (center_x, center_y)
+                    
+                    # Map left point
+                    left_x, left_y = self.image_processor.map_coordinates_to_original(
+                        crack['left_point'][0], crack['left_point'][1], zoom_roi, self.last_original_frame.shape
+                    )
+                    crack['left_point'] = (left_x, left_y)
+                    
+                    # Map right point
+                    right_x, right_y = self.image_processor.map_coordinates_to_original(
+                        crack['right_point'][0], crack['right_point'][1], zoom_roi, self.last_original_frame.shape
+                    )
+                    crack['right_point'] = (right_x, right_y)
+            
+            # Store results
+            self.current_crack_list = valid_cracks
+            self.primary_crack = valid_cracks[0] if len(valid_cracks) > 0 else None
+            
+            # Cache inference results
             self.last_pred_prob = pred_prob
             self.last_binary_mask = binary_mask
             self.last_crack_percentage = crack_percentage
@@ -142,9 +181,10 @@ class CrackDetectionNode(Node):
             binary_mask = self.last_binary_mask
             crack_percentage = self.last_crack_percentage
             depth_viz = None
+            # Keep previously detected cracks
         
-        # Determine current frame detection (single frame decision)
-        current_frame_detection = crack_percentage >= self.config.min_crack_percent
+        # Determine current frame detection (any valid crack found)
+        current_frame_detection = len(self.current_crack_list) > 0
         
         # Apply temporal consistency filter
         temporal_detection = self.detection_filters.apply_temporal_filter(current_frame_detection)
@@ -156,54 +196,27 @@ class CrackDetectionNode(Node):
         detection_count = sum(self.detection_filters.detection_history)
         temporal_status = f"{detection_count}/{len(self.detection_filters.detection_history)} frames"
         
-        # Calculate crack center (in zoomed frame coordinates)
-        center_x_zoomed, center_y_zoomed = self.scan_point_extractor.calculate_crack_center(binary_mask)
-        
-        # Map coordinates back to original frame if zoom is enabled
-        if self.config.zoom_enabled and zoom_roi is not None:
-            center_x, center_y = self.image_processor.map_coordinates_to_original(
-                center_x_zoomed, center_y_zoomed, zoom_roi, self.last_original_frame.shape
-            )
+        # Get primary crack info for legacy publishers
+        if self.primary_crack is not None:
+            center_x, center_y = self.primary_crack['center']
         else:
-            center_x, center_y = center_x_zoomed, center_y_zoomed
-        
-        # Extract scan points (center, left/start, right/end) if crack detected
-        if is_crack_detected:
-            scan_points = self.scan_point_extractor.extract_crack_scan_points(binary_mask)
-            
-            if scan_points is not None:
-                # Map scan points back to original frame if zoom is enabled
-                if self.config.zoom_enabled and zoom_roi is not None:
-                    scan_points_original = {}
-                    for point_name, (px, py) in scan_points.items():
-                        orig_x, orig_y = self.image_processor.map_coordinates_to_original(
-                            px, py, zoom_roi, self.last_original_frame.shape
-                        )
-                        scan_points_original[point_name] = (orig_x, orig_y)
-                else:
-                    scan_points_original = scan_points
-                    
-                # Store for saving (in original frame coordinates)
-                self.current_scan_points = scan_points_original
-                
-                # Log scan points
-                self.get_logger().info(
-                    f'📍 Scan Points - Center: {scan_points_original["center"]}, '
-                    f'Start: {scan_points_original["left_point"]}, '
-                    f'End: {scan_points_original["right_point"]}'
-                )
-                
-            else:
-                self.current_scan_points = None
+            center_x, center_y = 0, 0
         
         # Print detection result
-        if is_crack_detected:
+        if is_crack_detected and len(self.current_crack_list) > 0:
             zoom_info = f" [Zoom: {self.config.zoom_factor}x]" if self.config.zoom_enabled else ""
             wall_info = f" [Wall: {self.current_wall_distance:.2f}m]" if self.current_wall_distance else ""
             self.get_logger().info(
-                f'🔴 CRACK DETECTED at pixel ({center_x}, {center_y}){zoom_info}{wall_info} | '
+                f'🔴 {len(self.current_crack_list)} CRACK(S) DETECTED at pixel ({center_x}, {center_y}){zoom_info}{wall_info} | '
                 f'Coverage: {crack_percentage:.2f}% | Temporal: {temporal_status} | Frame: {self.frame_count}'
             )
+            # Log details of each crack
+            for i, crack in enumerate(self.current_crack_list):
+                self.get_logger().info(
+                    f'   Crack {i+1}: Area={crack["area"]}px, '
+                    f'Center={crack["center"]}, '
+                    f'Start={crack["left_point"]}, End={crack["right_point"]}'
+                )
             # Log AMCL pose on separate line
             if self.subscribers.current_pose is not None:
                 self.get_logger().info(
@@ -226,12 +239,18 @@ class CrackDetectionNode(Node):
         self.pub_manager.publish_boolean_detection(is_crack_detected)
         
         if is_crack_detected:
+            # Legacy single-crack publishers (publish primary/largest crack)
             self.pub_manager.publish_crack_center(center_x, center_y)
             self.pub_manager.publish_robot_pose(self.subscribers.current_pose)
             self.pub_manager.publish_marker(self.subscribers.current_pose, self.frame_count)
-            self.pub_manager.publish_scan_points_2d(self.current_scan_points)
+            
+            if self.primary_crack is not None:
+                self.pub_manager.publish_scan_points_2d(self.primary_crack)
+            
+            # NEW: Multi-crack publisher (all valid cracks)
+            self.pub_manager.publish_crack_list(self.current_crack_list)
         
-        # Publish visualization
+        # Publish visualization (unchanged - same as before)
         if self.config.publish_visualization:
             viz_image = self.visualization.create_visualization(
                 zoomed_frame_bgr, pred_prob, binary_mask, crack_percentage,
@@ -244,10 +263,10 @@ class CrackDetectionNode(Node):
             self.pub_manager.publish_visualization(viz_image, msg.header, self.bridge)
             
             # Publish scan points visualization (only when crack detected)
-            if is_crack_detected and self.current_scan_points is not None:
+            if is_crack_detected and self.primary_crack is not None:
                 scan_viz_image = self.visualization.create_scan_points_visualization(
-                        self.last_original_frame, binary_mask, self.current_scan_points
-                    )
+                    self.last_original_frame, binary_mask, self.primary_crack
+                )
                 self.pub_manager.publish_scan_visualization(scan_viz_image, msg.header, self.bridge)
 
 

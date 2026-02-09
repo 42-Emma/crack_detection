@@ -2,7 +2,7 @@
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import String, Bool
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Pose, PoseArray
 from visualization_msgs.msg import Marker
 
 
@@ -37,9 +37,17 @@ class Publishers:
             10
         )
         
+        # Legacy single crack publisher (publishes largest crack only)
         self.crack_center_pub = self.node.create_publisher(
             Point,
             '/crack_detection/center_pixel',
+            10
+        )
+        
+        # NEW: Multi-crack publisher (all detected cracks)
+        self.crack_list_pub = self.node.create_publisher(
+            PoseArray,
+            '/crack_detection/crack_list',
             10
         )
         
@@ -57,7 +65,7 @@ class Publishers:
             10
         )
         
-        # Publisher for 2D scan points (all 3 points in one message)
+        # Publisher for 2D scan points (legacy - single crack)
         self.scan_points_2d_pub = self.node.create_publisher(
             String,
             '/crack_detection/scan_points_2d',
@@ -118,12 +126,41 @@ class Publishers:
         self.crack_detected_pub.publish(detected_msg)
     
     def publish_crack_center(self, center_x, center_y):
-        """Publish crack center point."""
+        """Publish crack center point (legacy - single crack)."""
         center_msg = Point()
         center_msg.x = float(center_x)
         center_msg.y = float(center_y)
         center_msg.z = 0.0
         self.crack_center_pub.publish(center_msg)
+    
+    def publish_crack_list(self, crack_list):
+        """
+        Publish array of all detected cracks.
+        
+        Args:
+            crack_list (list): List of crack dictionaries with 'center', 'left_point', 
+                              'right_point', 'area', 'id' keys
+        """
+        pose_array = PoseArray()
+        pose_array.header.stamp = self.node.get_clock().now().to_msg()
+        pose_array.header.frame_id = 'camera_color_optical_frame'
+        
+        for crack in crack_list:
+            pose = Pose()
+            # Position = center point (2D pixel coordinates, z=0)
+            pose.position.x = float(crack['center'][0])
+            pose.position.y = float(crack['center'][1])
+            pose.position.z = float(crack['area'])  # Store area in z for now (metadata)
+            
+            # Orientation = placeholder (will be used for crack angle in Phase 2)
+            pose.orientation.x = float(crack['left_point'][0])  # Store left point in orientation.x
+            pose.orientation.y = float(crack['left_point'][1])  # Store left point in orientation.y
+            pose.orientation.z = float(crack['right_point'][0])  # Store right point in orientation.z
+            pose.orientation.w = float(crack['right_point'][1])  # Store right point in orientation.w
+            
+            pose_array.poses.append(pose)
+        
+        self.crack_list_pub.publish(pose_array)
     
     def publish_robot_pose(self, pose):
         """Publish robot pose when crack is detected."""
@@ -223,7 +260,7 @@ class Publishers:
     
     def publish_scan_points_2d(self, scan_points):
         """
-        Publish 2D scan points as a single string message.
+        Publish 2D scan points as a single string message (legacy - single crack).
         Format: "center:x,y;start:x,y;end:x,y"
         
         Args:
