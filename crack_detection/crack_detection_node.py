@@ -249,6 +249,9 @@ class CrackDetectionNode(Node):
             
             # NEW: Multi-crack publisher (all valid cracks)
             self.pub_manager.publish_crack_list(self.current_crack_list)
+            
+            # NEW: Publish crack angles for motion control
+            self.pub_manager.publish_crack_angles(self.current_crack_list)  # ADD THIS LINE
         
         # Publish visualization (unchanged - same as before)
         if self.config.publish_visualization:

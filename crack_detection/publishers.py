@@ -91,6 +91,13 @@ class Publishers:
             10
         )
         
+        # Publisher for crack angles (NEW)
+        self.crack_angles_pub = self.node.create_publisher(
+            String,
+            '/crack_detection/crack_angles',
+            10
+        )
+        
         if self.config.publish_visualization:
             self.viz_pub = self.node.create_publisher(
                 Image,
@@ -161,6 +168,28 @@ class Publishers:
             pose_array.poses.append(pose)
         
         self.crack_list_pub.publish(pose_array)
+    
+    def publish_crack_angles(self, crack_list):
+        """
+        Publish crack angles as a simple string.
+        Format: "crack_0:45.5;crack_1:-30.2;crack_2:90.0"
+    
+        Args:
+            crack_list: List of crack dictionaries with 'angle' key
+        """
+        if len(crack_list) == 0:
+            return
+    
+        # Build angle string
+        angle_parts = []
+        for crack in crack_list:
+            crack_id = crack['id']
+            angle = crack.get('angle', 0.0)
+            angle_parts.append(f"crack_{crack_id}:{angle:.2f}")
+    
+        msg = String()
+        msg.data = ";".join(angle_parts)
+        self.crack_angles_pub.publish(msg)
     
     def publish_robot_pose(self, pose):
         """Publish robot pose when crack is detected."""

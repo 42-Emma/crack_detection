@@ -129,6 +129,10 @@ class ScanPointExtractor:
             else:
                 aspect_ratio = 0.0
             
+            # Extract crack angle using minAreaRect
+            rect = cv2.minAreaRect(np.column_stack((x_coords, y_coords)))
+            angle = rect[2]  # Angle is the third element of the tuple
+            
             # Store crack info
             crack_info = {
                 'id': label_id,
@@ -137,7 +141,8 @@ class ScanPointExtractor:
                 'right_point': (right_x, right_y),
                 'area': area,
                 'bbox': (x, y, width, height),
-                'aspect_ratio': aspect_ratio
+                'aspect_ratio': aspect_ratio,
+                'angle': angle  # NEW LINE - add the angle
             }
             
             crack_list.append(crack_info)
